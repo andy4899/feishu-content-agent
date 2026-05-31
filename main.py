@@ -41,6 +41,7 @@ claude = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""
 #   }
 # }
 sessions: dict = {}
+welcomed_users: set = {}  # 已发送过欢迎消息的用户
 
 
 # ── FastAPI 生命周期 ───────────────────────────
@@ -92,6 +93,10 @@ async def handle_message(event: dict):
 
     _expire_old_sessions()
     session = sessions.get(open_id)
+
+    if open_id not in welcomed_users:
+        welcomed_users.add(open_id)
+        await feishu.send_text(chat_id, HELP_TEXT)
 
     if session and session["state"] == "waiting_title":
         await process_title_choice(open_id, chat_id, text, session)
