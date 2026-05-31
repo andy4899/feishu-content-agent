@@ -154,6 +154,15 @@ HELP_TEXT = """👋 你好！我是内容生成助手，支持以下 3 类内容
   劳动法 【考勤管理漏洞】 B 否
 
 ━━━━━━━━━━━━━━━━━━
+📰 【ADHD 公众号】
+格式一：公众号 【痛点话题】  → 生成4组主标题+副标题供选择
+格式二：公众号 《你的标题》  → 直接生成正文
+
+示例：
+  公众号 【明明想开始但身体动不了】
+  公众号 《你不是懒，是大脑卡住了》
+
+━━━━━━━━━━━━━━━━━━
 发送「帮助」随时查看此说明 💡"""
 
 
@@ -209,6 +218,21 @@ async def process_new_command(open_id: str, chat_id: str, text: str):
             await feishu.send_text(chat_id, f"📝 话题：{topic}\n\n⏳ 生成标题中...")
             first_user_msg = (
                 f"话题/痛点：{topic}。请执行模块1，生成4个标题，输出后等待我选择。"
+            )
+
+    # ── ADHD 公众号 ──
+    elif skill == "adhd_gzh":
+        mode = params.get("mode", "topic")
+        topic = params.get("input", "")
+        if mode == "title":
+            await feishu.send_text(chat_id, f"📰 已有标题：「{topic}」\n\n⏳ 直接生成公众号正文和配图提示词中...")
+            first_user_msg = (
+                f"已有标题：「{topic}」，跳过模块1，直接执行模块2、模块3、模块4，完整输出。"
+            )
+        else:
+            await feishu.send_text(chat_id, f"📰 话题：{topic}\n\n⏳ 生成公众号标题中...")
+            first_user_msg = (
+                f"话题/痛点：{topic}。请执行模块1，生成4组标题（主标题+副标题），输出后等待我选择。"
             )
 
     # ── 劳动法 ──
