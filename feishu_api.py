@@ -89,9 +89,12 @@ class FeishuAPI:
             doc_id: str = doc["document_id"]
             doc_url: str = doc.get("url") or f"https://docs.feishu.cn/docx/{doc_id}"
 
-            # 2. 获取根 block id
-            r2 = await c.get(f"{BASE}/docx/v1/documents/{doc_id}", headers=headers)
-            root_block_id: str = r2.json()["data"]["document"]["body"]["block_id"]
+            # 2. 获取根 block id（文档根 block 即 document_id）
+            r2 = await c.get(f"{BASE}/docx/v1/documents/{doc_id}/blocks", headers=headers)
+            r2_data = r2.json()
+            blocks = r2_data.get("data", {}).get("items", [])
+            # 第一个 block 即根节点，block_id 与 doc_id 相同
+            root_block_id: str = blocks[0]["block_id"] if blocks else doc_id
 
             # 3. 逐块写入内容（每块最多 2000 字）
             chunks = _split_text(content, 2000)
