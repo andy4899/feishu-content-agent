@@ -8,7 +8,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Optional
 
-import anthropic
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -20,13 +20,16 @@ load_dotenv()
 
 # ── 常量 ──────────────────────────────────────
 
-MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
+MODEL = os.environ.get("ZHIPU_MODEL", "glm-4-plus")
 SESSION_TTL = 1800  # 30分钟未操作自动清除
 
 # ── 全局对象 ──────────────────────────────────
 
 feishu = FeishuAPI()
-claude = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+zhipu = AsyncOpenAI(
+    api_key=os.environ.get("ZHIPU_API_KEY", ""),
+    base_url="https://open.bigmodel.cn/api/paas/v4/",
+)
 
 # Session 结构：
 # {
@@ -317,19 +320,18 @@ def _build_doc_title(skill: str, params: dict) -> str:
 
 
 async def _call_claude(system: str, messages: list) -> str:
-    resp = await claude.messages.create(
+    resp = await zhipu.chat.completions.create(
         model=MODEL,
         max_tokens=4096,
-        system=system,
-        messages=messages,
+        messages=[{"role": "system", "content": system}] + messages,
     )
-    return resp.content[0].text
+    return resp.choices[0].message.content
 
 
 async def _auto_generate_topic(track: str) -> str:
     """痛点池为空时，用 Claude 自动生成一个法考考点"""
     track_desc = "在职备考" if track == "A" else "二战三战"
-    resp = await claude.messages.create(
+    resp = await zhipu.chat.completions.create(
         model=MODEL,
         max_tokens=60,
         messages=[{
@@ -340,7 +342,7 @@ async def _auto_generate_topic(track: str) -> str:
             ),
         }],
     )
-    return resp.content[0].text.strip()
+    return resp.choices[0].message.content.strip()
 
 
 def _expire_old_sessions():
