@@ -87,7 +87,7 @@ class FeishuAPI:
 
             doc = data["data"]["document"]
             doc_id: str = doc["document_id"]
-            doc_url: str = doc["url"]
+            doc_url: str = doc.get("url") or f"https://docs.feishu.cn/docx/{doc_id}"
 
             # 2. 获取根 block id
             r2 = await c.get(f"{BASE}/docx/v1/documents/{doc_id}", headers=headers)
