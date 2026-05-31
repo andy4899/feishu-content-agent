@@ -44,7 +44,7 @@ claude = anthropic.AsyncAnthropic(
 #   }
 # }
 sessions: dict = {}
-welcomed_users: set = {}  # 已发送过欢迎消息的用户
+welcomed_users: set = set()  # 已发送过欢迎消息的用户
 
 
 # ── FastAPI 生命周期 ───────────────────────────
