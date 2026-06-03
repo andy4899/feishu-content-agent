@@ -67,40 +67,76 @@ def parse_command(text: str) -> Optional[tuple[str, dict]]:
     """
     解析用户指令，返回 (skill_name, params) 或 None
 
+    容错：合并多余空格、忽略大小写。支持省略话题（自动选题）、省略参数（使用默认值）。
+
     支持格式：
-      法考 A 1
-      小红书 【话题】  /  小红书 《已有标题》
-      劳动法 【话题】 A 是
+      法考 [【考点】] [A/B] [1-4]
+      小红书 [[【话题】/《标题》]]
+      公众号 [[【话题】/《标题》]]
+      劳动法 [[【话题】] [A/B] [是/否]]
     """
-    text = text.strip()
+    # 预处理：合并多余空格
+    text = re.sub(r'\s+', ' ', text.strip())
 
-    # 法考
-    m = re.match(r'^法考\s+([AB])\s+([1-4])$', text)
-    if m:
-        return "lawexam", {"track": m.group(1), "strategy": m.group(2)}
+    # 法考（关键词匹配，参数可省略）
+    if '法考' in text:
+        track = "A"
+        strategy = "1"
+        # 提取赛道
+        m = re.search(r'([ABab])', text)
+        if m:
+            track = m.group(1).upper()
+        # 提取策略
+        m = re.search(r'([1-4])', text)
+        if m:
+            strategy = m.group(1)
+        # 提取考点（如果有【】）
+        topic = None
+        m = re.search(r'【(.+?)】', text)
+        if m:
+            topic = m.group(1)
+        return "lawexam", {"track": track, "strategy": strategy, "topic": topic}
 
-    # ADHD 小红书（带话题或已有标题）
-    m = re.match(r'^小红书\s+[【《](.+?)[】》]$', text)
-    if m:
-        bracket = text[4:5]
-        mode = "title" if bracket == "《" else "topic"
-        return "adhd_xhs", {"input": m.group(1), "mode": mode}
+    # ADHD 小红书
+    if '小红书' in text or (text.upper() == 'ADHD'):
+        # 带标题《》
+        m = re.search(r'《(.+?)》', text)
+        if m:
+            return "adhd_xhs", {"input": m.group(1), "mode": "title"}
+        # 带话题【】
+        m = re.search(r'【(.+?)】', text)
+        if m:
+            return "adhd_xhs", {"input": m.group(1), "mode": "topic"}
+        # 无话题 → 自动选题
+        return "adhd_xhs", {"input": None, "mode": "auto"}
 
-    # ADHD 公众号（带话题或已有标题）
-    m = re.match(r'^公众号\s+[【《](.+?)[】》]$', text)
-    if m:
-        bracket = text[4:5]
-        mode = "title" if bracket == "《" else "topic"
-        return "adhd_gzh", {"input": m.group(1), "mode": mode}
+    # ADHD 公众号
+    if '公众号' in text:
+        m = re.search(r'《(.+?)》', text)
+        if m:
+            return "adhd_gzh", {"input": m.group(1), "mode": "title"}
+        m = re.search(r'【(.+?)】', text)
+        if m:
+            return "adhd_gzh", {"input": m.group(1), "mode": "topic"}
+        return "adhd_gzh", {"input": None, "mode": "auto"}
 
     # 劳动法
-    m = re.match(r'^劳动法\s+【(.+?)】\s+([AB])\s+(是|否)$', text)
-    if m:
-        return "laborlaw", {
-            "topic": m.group(1),
-            "track": m.group(2),
-            "inject": m.group(3) == "是",
-        }
+    if '劳动法' in text:
+        track = "A"
+        inject = True
+        # 提取赛道
+        m = re.search(r'([ABab])', text)
+        if m:
+            track = m.group(1).upper()
+        # 提取植入
+        if '否' in text:
+            inject = False
+        # 提取话题（如果有【】）
+        topic = None
+        m = re.search(r'【(.+?)】', text)
+        if m:
+            topic = m.group(1)
+        return "laborlaw", {"topic": topic, "track": track, "inject": inject}
 
     return None
 
@@ -112,6 +148,31 @@ def parse_command(text: str) -> Optional[tuple[str, dict]]:
 _EDITORIAL_BASE_PROMPT = """极简编辑风小红书知识卡片，Editorial Minimal style。竖版3:4比例，全幅满版（无黑色边框装饰条，内容铺满整张画面）。背景为暖奶油色米白（接近#F0EAD6），四边无色块遮挡。整体纯平面排版设计，绝对禁止摄影背景、禁止插画、禁止3D渲染、禁止光晕光效。内容区左右留约8%边距，上下留约5%边距。字体使用思源黑体/苹方无衬线体：标题超大粗体（约30-34pt），正文中等字重（约13-14pt）；标题与正文之间有一条细水平分割线；底部有深色（近黑）圆角矩形标签条，白色小字呈现一句话总结。所有中文文字笔画完整、字形端正、横平竖直、清晰可读，不得变形缺笔重叠溢出。"""
 
 _TEXT_RENDER_REQ = """画面中所有中文文字必须笔画完整、字形端正、横平竖直、清晰可读；使用简洁无衬线黑体；不要艺术字、不要连笔、不要手写花体；文字不得变形、缺笔、重叠或溢出画面。"""
+
+# 法考专用 - 胶片感备考随手拍风格封面底图
+_LAWEXAM_COVER_A = """Fujifilm film look, subtle grain, soft focus edges. Milky white desk, sunlight through venetian blinds casting horizontal stripe shadows. A law exam study guide and a steaming latte on the desk. An Asian person's hand using a highlighter to mark text. Clean, airy composition. High-key lighting, soft warm tones. No high saturation colors, no deep black shadows, no cluttered background, no face visible, no text. --ar 3:4"""
+
+_LAWEXAM_COVER_B = """Fujifilm film look, subtle grain, soft focus edges. Warm sunlight at a train station platform or bright train window. Focus on a handheld electronic device and milky-white toned bag and clothing details. Clean, airy composition. High-key lighting, soft warm tones. No high saturation colors, no deep black shadows, no cluttered background, no face visible, no text. --ar 3:4"""
+
+# 法考专用 - 内页笔记本底图
+_LAWEXAM_INNER = """Close-up of a blank minimalist aesthetic notebook page. Milky white background, soft warm brown tones. Non-cartoon style. A small warm yellow circular color block is placed in the top left corner. The rest of the page is completely empty, clean, and breathable. Soft un-saturated tones, high-key lighting, Fujifilm film look, subtle grain. No text, no letters. --ar 3:4"""
+
+# 法考专用 - 总结卡底图
+_LAWEXAM_SUMMARY = """A clean, minimalist study desk setting viewed from directly above. A blank piece of aesthetic milky white paper dominates the center. Soft warm light. Extremely neat. No text, no objects on the paper. 8k, photorealistic. --ar 3:4"""
+
+# 劳动法专用 - 极简苹果美学 Base_Prompt
+_LABOR_BASE_PROMPT = """苹果生态极简美学摄影,Notion交互文档般的冷感逻辑质感。冷灰色与银色调,大面积负空间留白约60%。极浅景深,清晨柔和的侧边窗光,光线干净克制。胶片颗粒感,高清晰度,背景极度虚化。三分法构图,强迫症级别对齐。真实摄影质感,不是插画,不是3D渲染,不是矢量图。整体秩序感、理性、专业、冷静。画面比例3:4竖版。"""
+
+# 劳动法专用 - 封面场景
+_LABOR_COVER_A = """25-30岁亚洲职场人,穿极简纯色高领针织衫,坐在整洁的办公桌前,桌上隐约可见MacBook边缘。直视镜头,眼神克制且坚定。背景为虚化的百叶窗。清晨柔和的侧边窗光,冷灰色与银色调,大面积负空间留白约60%。极浅景深。无任何文字道具。"""
+
+_LABOR_COVER_B = """35-45岁亚洲管理者,穿基础款衬衫,坐在极简会议室,目光聚焦在桌面上的一份模糊文件上,眉头微皱。极简冷感光影,冷灰色与银色调,大面积负空间留白约60%。极浅景深。无任何文字道具。"""
+
+# 劳动法专用 - 内页静物
+_LABOR_INNER = """Close-up minimalist desk still life photography. Milky white and cold grey tones. One of: silver laptop corner / simple coffee cup with pen / blank acrylic folder / minimal desk clock. Shot from above or eye-level macro, subject offset to lower-left or lower-right, large clean blurred space above and center. 60% negative space. Soft window light. No text, no letters. --ar 3:4"""
+
+# 劳动法专用 - 总结卡
+_LABOR_SUMMARY = """A completely empty, clean office desk viewed from slightly above. A beam of warm sunlight falls on the blank desk surface. Strong sense of order and clarity. Minimalist, cold grey and silver tones. 60% negative space. No text, no objects on desk. --ar 3:4"""
 
 # ADHD 小红书专用 Base_Prompt（手绘涂鸦风，竖版3:4）
 _XHS_BASE_PROMPT = """极简手绘涂鸦插画,速写感,极细均匀的钢笔线条,带轻微抖动的不完美手绘线,像在笔记本上随手画的。不是精致矢量插画,不是粗圆描边的可爱卡通,不是日系二次元风。Q版人物,脸部极简:两个小黑点眼睛+一条极短小弧线嘴。不要腮红,不要鼻子,头发不要高光不要分层。头发只画外轮廓+刘海2-3根极简发丝,内部留白。省略脖子或脖子极短,肩膀在画面底部自然淡出。线条颜色:深海军蓝墨水色,不是纯黑。背景色:温暖明亮的奶油薰衣草紫。装饰色块:雾霾薄荷绿,作为独立色块放在角色身体侧面的空白处,不和头发身体重叠。衣服:整片纯色块,极少线条勾勒外轮廓,不画衣领扣子。2D扁平,无渐变无阴影无高光。画面比例3:4竖版。"""
@@ -169,7 +230,17 @@ LAWEXAM_SYSTEM = f"""
 
 1. 真实性铁律：绝对禁止编造虚假用户案例或使用"上岸、涨分、翻倍、拿证、每天2小时考过"等虚假承诺。
 2. 语言红线：禁止使用晦涩法学术语，必须全部转化为极致大白话。例：无权处分→把别人东西乱卖；脱手物→偷来捡来的东西。
-3. 视觉文字红线：卡片中文字必须与模块4质检清单完全一致，禁止自行增删改写。
+3. 视觉文字红线：卡片中AI生成的文字必须与模块4质检清单完全一致，禁止自行增删改写。
+
+## 纯文本排版协议（正文输出绝对红线）
+
+正文必须使用「纯文本友好」格式，确保粘贴到小红书等任何平台都能保持视觉结构。
+- 禁止使用 Markdown 语法（不用 ##、**、- 列表、> 引用、--- 分隔线）
+- 小标题用 emoji + 文字独占一行（如 ⚠️ 小标题）
+- 强调重点用「」包裹，不用 ** 加粗
+- 列表项用 🔹🔸▫️ 开头，不用 - 短横线
+- 金句用 ━━━ 分隔线包裹，不用 > 引用
+- 模块间空一行，用 emoji 分隔符（如 🫧）独占一行
 
 ## 双轨人群预设
 
@@ -212,42 +283,69 @@ Track A 偏"高效/省时/降维"；Track B 偏"排雷/纠错/判断顺序"
 
 ### 模块 2 · 正文生成（收到用户选择后执行）
 
-硬约束：全文≤1000字；每段≤3行；板块间空行；多用·列表符号拆解长句；Emoji克制不堆砌。
+硬约束：全文≤1000字；每段≤3行；板块间空行；Emoji克制不堆砌。
 视觉降维铁律：所有法学概念必须翻译成大白话，严禁晦涩术语。
+**严格执行纯文本排版协议**：禁止任何Markdown语法。
 
 四个板块：
 - 01. 破冰留人：呼应标题，具体备考场景或扎心提问，3秒打破防御
 - 02. 核心内容：视觉降维，把考点/方法拆成大白话步骤、对比或判断顺序
-- 03. 长期养成式互动：抛出封闭式、强相关提问，引导评论区互动
+- 03. 长期养成式互动：先抛封闭式提问让读者自测，紧跟**具体行动指令**激活评论区（如"把答案写在评论区，我会随机抽3个同学的作业进行点评"）
 - 04. 标签矩阵：4-6个精准话题（#法考泛流量大词 + #精准痛点词 + #人群词）
 
 策略适配：
-- 策略1种草：核心内容自然带出知识库如何解决该卡点，克制、不硬广
-- 策略2科普：以讲透考点/判断方法为主，知识库仅结尾轻提
+- 策略1种草：核心内容自然带出知识库如何解决该卡点。⚠️ **产品名称必须使用有「私密感」和「稀缺感」的命名**——禁止用"法考知识库"这种泛称，改为「【私藏】法考卡片库」「【内部】错题拆解笔记」「【独门】考点降维手册」等。必须附带具体利益点（如"进去就能免费领《XX易混考点速查表》"）。克制不硬广，但名称要有诱惑力
+- 策略2科普：以讲透考点/判断方法为主，知识库仅结尾轻提，同样使用私密感名称
 - 策略3鼓励：侧重情绪疏导与备考心态，缓解挫败感
 - 策略4规划：侧重时间安排、复习节奏的可执行方案
 
 ---
 
-### 模块 3 · 视觉生图提示词（5张卡片）
+### 模块 3 · 视觉卡片生成（胶片感备考随手拍风格）
 
-每张提示词 = [Base_Prompt] + [文字内容] + [文字渲染要求] + [结构变体] 拼接为完整无换行一段话。
+根据正文内容 + 赛道（Track A/B），输出5张卡片的【生图底图提示词】与【排版文字数据】。
+AI 仅负责生成极简氛围底图，所有文字为后期排版叠加。
 
-[Base_Prompt]（一字不改）：
-{_EDITORIAL_BASE_PROMPT}
+全局视觉风格：柔和高调（High-key），米白色、奶油色、浅米黄主基调。Fujifilm电影感，微弱颗粒感，柔焦边缘。画面像真实考生用手机在自然光下随手拍的照片。比例3:4。
+🚨 严禁字元指令：所有生图提示词必须是纯场景描述，绝对禁止要求AI生成任何具体文字或数字。
 
-[文字渲染要求]（每张必须包含）：
-{_TEXT_RENDER_REQ}
+**图1 · 封面**
 
-卡片结构：
-- 图1 封面：顶部小灰字类目标签 + 超大粗体主标题（2行）+ 细横线 + 副文1-2行 + 底部深色圆角矩形条白字
-- 图2-4 内页：小灰字类目标签 + 粗体小标题 + 细横线 + 正文（可用①②③编号、→箭头对比、虚线流程节点）+ 底部深色圆角矩形条白字
-- 图5 总结卡：小灰字类目标签 + 粗体标题 + 细横线 + 3条带序号要点 + 底部深色圆角矩形条白字
+底图生图提示词（按赛道选择）：
+- Track A：{_LAWEXAM_COVER_A}
+- Track B：{_LAWEXAM_COVER_B}
 
-图2-4结构变体（按内容选择）：
-- 含对比数据：灰阶阶梯条形图（仅灰色矩形，数值粗体白字，右侧细字说明）
-- 含流程：虚线连接带圆点横向节点（黑点+虚线+右箭头）
-- 含产品展示：写实黑色iPhone 15竖版外框线稿并排
+排版文字（双层级强对比排版）：
+- 副标题（顶部，较小字号）：场景补充、细节痛点或扎心现状，≤14字
+  - Track A 示例："加班后分不清东西归谁？"
+  - Track B 示例："共犯这块，做一次错一次？"
+- 主标题（居中，极大字号）：核心结果承诺或最强烈的利益点，≤10字
+  - Track A 示例："看懂这篇，一次搞定"
+  - Track B 示例："掌握这套，再不丢分"
+
+**图2-4 · 内页干货卡（3张）**
+
+逻辑递进：卡片1（基础判断规则）→ 卡片2（最易混淆的坑）→ 卡片3（做题判断步骤）
+
+底图生图提示词（3张统一）：
+{_LAWEXAM_INNER}
+
+排版文字（每张卡片）：
+- 编号：01 / 02 / 03
+- 主标题：≤10字
+- 正文三条：每条 ≤15字，高度提炼
+
+**图5 · 总结卡**
+
+底图生图提示词：
+{_LAWEXAM_SUMMARY}
+
+排版文字：
+- 顶部主标题："[考点话题]，搞清楚这一步少走弯路"
+- 核心提炼：三条关键复习建议，每条 ≤15字
+- 底部行动呼唤（按赛道）：
+  - Track A："工作再忙也能过，方法对了时间够用 / 你备考到哪个阶段了？评论区说说 / 完整备考计划→主页法考知识库"
+  - Track B："没过不是终点，找对漏洞这次才算真的开始 / 你上次卡在哪个科目？评论区说说 / 完整备考计划→主页法考知识库"
 
 ---
 
@@ -259,26 +357,24 @@ Track A 偏"高效/省时/降维"；Track B 偏"排雷/纠错/判断顺序"
 ### ✅ 模块4 | 文字质检清单
 
 图1 →
-  类目标签：[内容]
-  主标题：[逐行]
-  副文：[内容]
-  底部条：[内容]
+  副标题：[内容]
+  主标题：[内容]
 
 图2 →
-  类目标签：[内容]
-  小标题：[内容]
-  正文：[逐行]
-  底部条：[内容]
+  编号：01
+  主标题：[内容]
+  正文1：[内容]
+  正文2：[内容]
+  正文3：[内容]
 
 （图3、图4同上）
 
 图5 →
-  类目标签：[内容]
-  标题：[内容]
-  要点1：[内容]
-  要点2：[内容]
-  要点3：[内容]
-  底部条：[内容]
+  顶部主标题：[内容]
+  核心提炼1：[内容]
+  核心提炼2：[内容]
+  核心提炼3：[内容]
+  底部行动呼唤：[内容]
 ```
 """
 

@@ -2,6 +2,7 @@
 飞书 API 封装：消息发送 + 文档创建
 """
 import json
+import logging
 import os
 from datetime import datetime, timedelta
 
@@ -82,39 +83,50 @@ class FeishuAPI:
             r = await c.post(f"{BASE}/docx/v1/documents", headers=headers, json=body)
             data = r.json()
             if data.get("code") != 0:
-                print(f"[Feishu] create_document error: {data}")
+                logging.warning(f"[Feishu] create_document error: {data}")
                 return ""
 
             doc = data["data"]["document"]
             doc_id: str = doc["document_id"]
             doc_url: str = doc.get("url") or f"https://docs.feishu.cn/docx/{doc_id}"
 
-            # 2. 获取根 block id（文档根 block 即 document_id）
-            r2 = await c.get(f"{BASE}/docx/v1/documents/{doc_id}/blocks", headers=headers)
-            r2_data = r2.json()
-            blocks = r2_data.get("data", {}).get("items", [])
-            # 第一个 block 即根节点，block_id 与 doc_id 相同
-            root_block_id: str = blocks[0]["block_id"] if blocks else doc_id
+            # 2. 根 block id 与 document_id 相同（Feishu docx 规范）
+            root_block_id: str = doc_id
 
-            # 3. 逐块写入内容（每块最多 2000 字）
-            chunks = _split_text(content, 2000)
-            for chunk in chunks:
-                await c.post(
+            # 3. 按行拆分写入（text_run 不能含 \n，每行一个段落块）
+            import sys
+            print(f"[Feishu] content length={len(content)}, doc_id={doc_id}", file=sys.stderr, flush=True)
+            if not content:
+                print("[Feishu] WARNING: content is empty, nothing to write", file=sys.stderr, flush=True)
+                return doc_url
+
+            lines = _lines_for_blocks(content)
+            print(f"[Feishu] lines count={len(lines)}", file=sys.stderr, flush=True)
+
+            # 每次最多批量写入 50 个 block
+            BATCH = 50
+            for batch_idx in range(0, len(lines), BATCH):
+                batch = lines[batch_idx : batch_idx + BATCH]
+                children = [
+                    {
+                        "block_type": 2,
+                        "paragraph": {
+                            "elements": [
+                                {"type": "text_run", "text_run": {"content": line}}
+                            ]
+                        },
+                    }
+                    for line in batch
+                ]
+                wr = await c.post(
                     f"{BASE}/docx/v1/documents/{doc_id}/blocks/{root_block_id}/children",
                     headers=headers,
-                    json={
-                        "children": [
-                            {
-                                "block_type": 2,  # paragraph
-                                "paragraph": {
-                                    "elements": [
-                                        {"type": "text_run", "text_run": {"content": chunk}}
-                                    ]
-                                },
-                            }
-                        ]
-                    },
+                    json={"children": children},
                 )
+                wr_data = wr.json()
+                print(f"[Feishu] batch {batch_idx//BATCH}: code={wr_data.get('code')} msg={wr_data.get('msg')}", file=sys.stderr, flush=True)
+                if wr_data.get("code") != 0:
+                    raise RuntimeError(f"块写入失败 code={wr_data.get('code')} msg={wr_data.get('msg')}")
 
             return doc_url
 
@@ -123,3 +135,17 @@ class FeishuAPI:
 
 def _split_text(text: str, size: int) -> list[str]:
     return [text[i : i + size] for i in range(0, len(text), size)]
+
+
+def _lines_for_blocks(text: str, max_len: int = 2000) -> list[str]:
+    """按行拆分内容，超长行进一步切割。
+    飞书 text_run 不接受空字符串，空行用单个空格代替。"""
+    result = []
+    for line in text.split("\n"):
+        line = line if line else " "  # 空行替换为空格，否则飞书 API 报 invalid param
+        if len(line) <= max_len:
+            result.append(line)
+        else:
+            for i in range(0, len(line), max_len):
+                result.append(line[i : i + max_len])
+    return result

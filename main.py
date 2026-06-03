@@ -8,10 +8,13 @@ import time
 from contextlib import asynccontextmanager
 from typing import Optional
 
+import logging
 import anthropic
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger("app")
 
 from feishu_api import FeishuAPI
 from prompts import PAIN_POOL, get_system_prompt, parse_command
@@ -296,32 +299,33 @@ async def process_title_choice(open_id: str, chat_id: str, choice: str, session:
 
     await feishu.send_text(chat_id, "✅ 已选标题，正在生成正文和图片提示词，请稍候...")
 
-    reply = await _call_claude(session["system"], session["messages"])
-    session["messages"].append({"role": "assistant", "content": reply})
-    session["state"] = "done"
-
-    await _finalize(open_id, chat_id, reply, session["skill"], session["params"])
+    try:
+        reply = await _call_claude(session["system"], session["messages"])
+        session["messages"].append({"role": "assistant", "content": reply})
+        session["state"] = "done"
+        await _finalize(open_id, chat_id, reply, session["skill"], session["params"])
+    except Exception as e:
+        await feishu.send_text(chat_id, f"⚠️ 生成失败：{e}")
 
 
 # ── 生成完毕：创建飞书文档 ─────────────────────
 
 async def _finalize(open_id: str, chat_id: str, content: str, skill: str, params: dict):
-    doc_title = _build_doc_title(skill, params)
-    doc_url = await feishu.create_document(doc_title, content)
-
-    if doc_url:
-        await feishu.send_text(
-            chat_id,
-            f"✅ 内容已生成完毕！\n\n📄 飞书文档：{doc_url}",
-        )
+    # 直接把内容发到聊天（send_text 内部会自动按 3000 字分段）
+    if content:
+        await feishu.send_text(chat_id, f"✅ 内容已生成完毕！\n\n{content}")
     else:
-        # 文档创建失败时直接发送内容（前1500字 + 提示）
-        preview = content[:1500]
-        await feishu.send_text(
-            chat_id,
-            f"✅ 内容已生成（文档创建失败，直接发送内容）：\n\n{preview}\n\n"
-            f"{'…（内容较长已截断）' if len(content) > 1500 else ''}",
-        )
+        await feishu.send_text(chat_id, "⚠️ 内容生成为空，请重试。")
+
+    # 存飞书文档
+    try:
+        doc_title = _build_doc_title(skill, params)
+        doc_url = await feishu.create_document(doc_title, content)
+        if doc_url:
+            await feishu.send_text(chat_id, f"📄 飞书文档：{doc_url}")
+    except Exception as e:
+        logger.exception("create_document failed")
+        await feishu.send_text(chat_id, f"⚠️ 文档写入失败：{e}\n内容已在上方消息中，请手动复制保存。")
 
     sessions.pop(open_id, None)
 
@@ -346,7 +350,7 @@ def _build_doc_title(skill: str, params: dict) -> str:
 async def _call_claude(system: str, messages: list) -> str:
     resp = await claude.messages.create(
         model=MODEL,
-        max_tokens=4096,
+        max_tokens=8192,
         system=system,
         messages=messages,
     )
