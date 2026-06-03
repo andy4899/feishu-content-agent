@@ -103,7 +103,7 @@ class FeishuAPI:
             lines = _lines_for_blocks(content)
             print(f"[Feishu] lines count={len(lines)}", file=sys.stderr, flush=True)
 
-            # 每次最多批量写入 50 个 block
+            # 每次最多批量写入 50 个 block，批量失败则逐条写入跳过问题行
             BATCH = 50
             for batch_idx in range(0, len(lines), BATCH):
                 batch = lines[batch_idx : batch_idx + BATCH]
@@ -126,7 +126,35 @@ class FeishuAPI:
                 wr_data = wr.json()
                 print(f"[Feishu] batch {batch_idx//BATCH}: code={wr_data.get('code')} msg={wr_data.get('msg')}", file=sys.stderr, flush=True)
                 if wr_data.get("code") != 0:
-                    raise RuntimeError(f"块写入失败 code={wr_data.get('code')} msg={wr_data.get('msg')}")
+                    # 批量失败，退化为逐条写入，跳过问题行
+                    print(f"[Feishu] batch failed, falling back to individual writes", file=sys.stderr, flush=True)
+                    ok_count = 0
+                    skip_count = 0
+                    for line in batch:
+                        child = {
+                            "block_type": 2,
+                            "paragraph": {
+                                "elements": [
+                                    {"type": "text_run", "text_run": {"content": line}}
+                                ]
+                            },
+                        }
+                        try:
+                            r = await c.post(
+                                f"{BASE}/docx/v1/documents/{doc_id}/blocks/{root_block_id}/children",
+                                headers=headers,
+                                json={"children": [child]},
+                            )
+                            rd = r.json()
+                            if rd.get("code") == 0:
+                                ok_count += 1
+                            else:
+                                skip_count += 1
+                                print(f"[Feishu] skip line (code={rd.get('code')}): {line[:80]}", file=sys.stderr, flush=True)
+                        except Exception as ex:
+                            skip_count += 1
+                            print(f"[Feishu] skip line (exception): {ex}", file=sys.stderr, flush=True)
+                    print(f"[Feishu] individual writes done: ok={ok_count} skip={skip_count}", file=sys.stderr, flush=True)
 
             return doc_url
 
@@ -139,10 +167,15 @@ def _split_text(text: str, size: int) -> list[str]:
 
 def _lines_for_blocks(text: str, max_len: int = 2000) -> list[str]:
     """按行拆分内容，超长行进一步切割。
-    飞书 text_run 不接受空字符串，空行用单个空格代替。"""
+    飞书 text_run 不接受空字符串，空行用单个空格代替。
+    同时清理控制字符，避免 invalid param 错误。"""
     result = []
-    for line in text.split("\n"):
-        line = line if line else " "  # 空行替换为空格，否则飞书 API 报 invalid param
+    for raw_line in text.split("\n"):
+        # 清理控制字符（保留常见空白），去除 \r
+        line = ''.join(c for c in raw_line if ord(c) >= 32 or c in ('\t',))
+        line = line.strip('\r')
+        # 空行替换为空格
+        line = line if line else " "
         if len(line) <= max_len:
             result.append(line)
         else:
