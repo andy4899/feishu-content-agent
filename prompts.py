@@ -178,26 +178,42 @@ def parse_command(text: str) -> Optional[tuple[str, dict]]:
 
     # ADHD 小红书
     if '小红书' in text or (text.upper() == 'ADHD'):
+        # 提取赛道：A=成人 B=儿童/亲子 C=夫妻/伴侣 D=职场
+        adhd_track = "A"
+        if re.search(r'[Bb]', text) or any(k in text for k in ['儿童', '孩子', '亲子', '小孩']):
+            adhd_track = "B"
+        elif re.search(r'[Cc]', text) or any(k in text for k in ['夫妻', '伴侣', '婚姻', '关系']):
+            adhd_track = "C"
+        elif re.search(r'[Dd]', text) or any(k in text for k in ['职场', '工作', '上班']):
+            adhd_track = "D"
         # 带标题《》
         m = re.search(r'《(.+?)》', text)
         if m:
-            return "adhd_xhs", {"input": m.group(1), "mode": "title"}
+            return "adhd_xhs", {"input": m.group(1), "mode": "title", "track": adhd_track}
         # 带话题【】
         m = re.search(r'【(.+?)】', text)
         if m:
-            return "adhd_xhs", {"input": m.group(1), "mode": "topic"}
+            return "adhd_xhs", {"input": m.group(1), "mode": "topic", "track": adhd_track}
         # 无话题 → 自动选题
-        return "adhd_xhs", {"input": None, "mode": "auto"}
+        return "adhd_xhs", {"input": None, "mode": "auto", "track": adhd_track}
 
     # ADHD 公众号
     if '公众号' in text:
+        # 提取赛道：A=成人 B=儿童/亲子 C=夫妻/伴侣 D=职场
+        adhd_track = "A"
+        if re.search(r'[Bb]', text) or any(k in text for k in ['儿童', '孩子', '亲子', '小孩']):
+            adhd_track = "B"
+        elif re.search(r'[Cc]', text) or any(k in text for k in ['夫妻', '伴侣', '婚姻', '关系']):
+            adhd_track = "C"
+        elif re.search(r'[Dd]', text) or any(k in text for k in ['职场', '工作', '上班']):
+            adhd_track = "D"
         m = re.search(r'《(.+?)》', text)
         if m:
-            return "adhd_gzh", {"input": m.group(1), "mode": "title"}
+            return "adhd_gzh", {"input": m.group(1), "mode": "title", "track": adhd_track}
         m = re.search(r'【(.+?)】', text)
         if m:
-            return "adhd_gzh", {"input": m.group(1), "mode": "topic"}
-        return "adhd_gzh", {"input": None, "mode": "auto"}
+            return "adhd_gzh", {"input": m.group(1), "mode": "topic", "track": adhd_track}
+        return "adhd_gzh", {"input": None, "mode": "auto", "track": adhd_track}
 
     # 劳动法
     if '劳动法' in text:
@@ -483,6 +499,19 @@ ADHD_XHS_SYSTEM = f"""
 
 {_PLAIN_TEXT_PROTOCOL}
 
+## ADHD 赛道人群预设
+
+用户指令中会指定赛道（Track），决定内容视角和角色选择：
+- Track A [成人/本人]：ADHD 成人自身的情绪、执行功能、日常困扰（默认）
+- Track B [儿童/亲子]：家长视角，孩子被怀疑或确诊 ADHD 的养育困惑
+- Track C [夫妻/伴侣]：ADHD 伴侣关系中的沟通损耗、情绪摩擦
+- Track D [职场]：ADHD 在工作中的表现焦虑、时间管理、同事误解
+
+不同赛道影响：
+- 文案语气和代入角色不同（Track A 第一人称、Track B 家长视角等）
+- 插画角色选择不同（Track B 用小孩+中年女性、Track C 用双人关系组等）
+- 话术和案例要贴合对应人群的真实场景
+
 ## 工作流程
 
 ### 模块 1 · 标题生成（先执行此模块，输出后等待用户选择，不得自行进入模块2）
@@ -694,6 +723,16 @@ ADHD_GZH_SYSTEM = f"""
 3. 语言风格：冷感逻辑，暖核共情。口语化、扎心，绝不使用冗长书面语或大段密集文字。
 
 {_PLAIN_TEXT_PROTOCOL}
+
+## ADHD 赛道人群预设
+
+用户指令中会指定赛道（Track），决定内容视角和角色选择：
+- Track A [成人/本人]：ADHD 成人自身的情绪、执行功能、日常困扰（默认）
+- Track B [儿童/亲子]：家长视角，孩子被怀疑或确诊 ADHD 的养育困惑
+- Track C [夫妻/伴侣]：ADHD 伴侣关系中的沟通损耗、情绪摩擦
+- Track D [职场]：ADHD 在工作中的表现焦虑、时间管理、同事误解
+
+不同赛道影响：文案语气、代入角色、话术和案例要贴合对应人群的真实场景。
 
 ## 工作流程
 

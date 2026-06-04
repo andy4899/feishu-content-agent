@@ -128,14 +128,19 @@ HELP_TEXT = """👋 你好！我是内容生成助手，支持以下 4 类内容
 ━━━━━━━━━━━━━━━━━━
 🧠 【ADHD 小红书】
 直接输入「小红书」即可，话题自动从痛点库抽取
+也可指定赛道：小红书 B  /  小红书 职场
+
+赛道：A = 成人（默认） B = 儿童/亲子
+　　　C = 夫妻/伴侣  D = 职场
 也可手动指定：小红书 【痛点话题】
 或直接给标题：小红书 《你的标题》
 
 ━━━━━━━━━━━━━━━━━━
 📰 【ADHD 公众号】
 直接输入「公众号」即可，话题自动从痛点库抽取
-也可手动指定：公众号 【痛点话题】
-或直接给标题：公众号 《你的标题》
+也可指定赛道：公众号 C  /  公众号 夫妻
+
+赛道：同小红书 A/B/C/D
 
 ━━━━━━━━━━━━━━━━━━
 ⚖️ 【劳动法小红书】
@@ -197,10 +202,13 @@ async def process_new_command(open_id: str, chat_id: str, text: str):
     elif skill == "adhd_xhs":
         mode = params.get("mode", "topic")
         topic = params.get("input", "")
+        adhd_track = params.get("track", "A")
+        track_labels = {"A": "成人", "B": "儿童/亲子", "C": "夫妻/伴侣", "D": "职场"}
+        track_label = track_labels.get(adhd_track, "成人")
         if mode == "title":
-            await feishu.send_text(chat_id, f"📝 已有标题：「{topic}」\n\n⏳ 直接生成正文和图片提示词中...")
+            await feishu.send_text(chat_id, f"📝 已有标题：「{topic}」\n赛道：{track_label}\n\n⏳ 直接生成正文和图片提示词中...")
             first_user_msg = (
-                f"已有标题：「{topic}」，跳过模块1，直接执行模块2、模块3、模块4，完整输出。"
+                f"已有标题：「{topic}」，Track {adhd_track}（{track_label}视角）。跳过模块1，直接执行模块2、模块3、模块4，完整输出。"
             )
         elif mode == "auto" or not topic:
             # 自动选题
@@ -211,24 +219,27 @@ async def process_new_command(open_id: str, chat_id: str, text: str):
             else:
                 topic = pool.get_next()
             params["input"] = topic
-            await feishu.send_text(chat_id, f"📌 本期选题：{topic}\n📦 剩余：{pool.remaining()} 条\n\n⏳ 生成标题中...")
+            await feishu.send_text(chat_id, f"📌 本期选题：{topic}\n赛道：{track_label}  📦 剩余：{pool.remaining()} 条\n\n⏳ 生成标题中...")
             first_user_msg = (
-                f"话题/痛点：{topic}。请执行模块1，生成4个标题，输出后等待我选择。"
+                f"话题/痛点：{topic}，Track {adhd_track}（{track_label}视角）。请执行模块1，生成4个标题，输出后等待我选择。"
             )
         else:
-            await feishu.send_text(chat_id, f"📝 话题：{topic}\n\n⏳ 生成标题中...")
+            await feishu.send_text(chat_id, f"📝 话题：{topic}\n赛道：{track_label}\n\n⏳ 生成标题中...")
             first_user_msg = (
-                f"话题/痛点：{topic}。请执行模块1，生成4个标题，输出后等待我选择。"
+                f"话题/痛点：{topic}，Track {adhd_track}（{track_label}视角）。请执行模块1，生成4个标题，输出后等待我选择。"
             )
 
     # ── ADHD 公众号 ──
     elif skill == "adhd_gzh":
         mode = params.get("mode", "topic")
         topic = params.get("input", "")
+        adhd_track = params.get("track", "A")
+        track_labels = {"A": "成人", "B": "儿童/亲子", "C": "夫妻/伴侣", "D": "职场"}
+        track_label = track_labels.get(adhd_track, "成人")
         if mode == "title":
-            await feishu.send_text(chat_id, f"📰 已有标题：「{topic}」\n\n⏳ 直接生成公众号正文和配图提示词中...")
+            await feishu.send_text(chat_id, f"📰 已有标题：「{topic}」\n赛道：{track_label}\n\n⏳ 直接生成公众号正文和配图提示词中...")
             first_user_msg = (
-                f"已有标题：「{topic}」，跳过模块1，直接执行模块2、模块3、模块4，完整输出。"
+                f"已有标题：「{topic}」，Track {adhd_track}（{track_label}视角）。跳过模块1，直接执行模块2、模块3、模块4，完整输出。"
             )
         elif mode == "auto" or not topic:
             # 自动选题
@@ -239,14 +250,14 @@ async def process_new_command(open_id: str, chat_id: str, text: str):
             else:
                 topic = pool.get_next()
             params["input"] = topic
-            await feishu.send_text(chat_id, f"📌 本期选题：{topic}\n📦 剩余：{pool.remaining()} 条\n\n⏳ 生成公众号标题中...")
+            await feishu.send_text(chat_id, f"📌 本期选题：{topic}\n赛道：{track_label}  📦 剩余：{pool.remaining()} 条\n\n⏳ 生成公众号标题中...")
             first_user_msg = (
                 f"话题/痛点：{topic}。请执行模块1，生成4组标题（主标题+副标题），输出后等待我选择。"
             )
         else:
-            await feishu.send_text(chat_id, f"📰 话题：{topic}\n\n⏳ 生成公众号标题中...")
+            await feishu.send_text(chat_id, f"📰 话题：{topic}\n赛道：{track_label}\n\n⏳ 生成公众号标题中...")
             first_user_msg = (
-                f"话题/痛点：{topic}。请执行模块1，生成4组标题（主标题+副标题），输出后等待我选择。"
+                f"话题/痛点：{topic}，Track {adhd_track}（{track_label}视角）。请执行模块1，生成4组标题（主标题+副标题），输出后等待我选择。"
             )
 
     # ── 劳动法 ──
@@ -415,9 +426,11 @@ def _reconstruct_command(session: dict) -> str:
         strategy = params.get("strategy", "1")
         return f"法考 {track} {strategy}"
     elif skill == "adhd_xhs":
-        return "小红书"
+        adhd_track = params.get("track", "A")
+        return f"小红书 {adhd_track}"
     elif skill == "adhd_gzh":
-        return "公众号"
+        adhd_track = params.get("track", "A")
+        return f"公众号 {adhd_track}"
     elif skill == "laborlaw":
         track = params.get("track", "A")
         inject = "是" if params.get("inject", True) else "否"
