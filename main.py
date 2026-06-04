@@ -4,6 +4,7 @@
 """
 import json
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -17,7 +18,7 @@ from fastapi.responses import JSONResponse
 logger = logging.getLogger("app")
 
 from feishu_api import FeishuAPI
-from prompts import PAIN_POOL, get_system_prompt, parse_command
+from prompts import PAIN_POOL, get_pain_pool, get_system_prompt, parse_command
 
 load_dotenv()
 
@@ -197,6 +198,19 @@ async def process_new_command(open_id: str, chat_id: str, text: str):
             first_user_msg = (
                 f"已有标题：「{topic}」，跳过模块1，直接执行模块2、模块3、模块4，完整输出。"
             )
+        elif mode == "auto" or not topic:
+            # 自动选题
+            pool = get_pain_pool(skill)
+            if pool.is_empty():
+                await feishu.send_text(chat_id, "📦 ADHD痛点池已空，正在自动生成新话题...")
+                topic = "ADHD日常困扰"
+            else:
+                topic = pool.get_next()
+            params["input"] = topic
+            await feishu.send_text(chat_id, f"📌 本期选题：{topic}\n📦 剩余：{pool.remaining()} 条\n\n⏳ 生成标题中...")
+            first_user_msg = (
+                f"话题/痛点：{topic}。请执行模块1，生成4个标题，输出后等待我选择。"
+            )
         else:
             await feishu.send_text(chat_id, f"📝 话题：{topic}\n\n⏳ 生成标题中...")
             first_user_msg = (
@@ -212,6 +226,19 @@ async def process_new_command(open_id: str, chat_id: str, text: str):
             first_user_msg = (
                 f"已有标题：「{topic}」，跳过模块1，直接执行模块2、模块3、模块4，完整输出。"
             )
+        elif mode == "auto" or not topic:
+            # 自动选题
+            pool = get_pain_pool(skill)
+            if pool.is_empty():
+                await feishu.send_text(chat_id, "📦 ADHD痛点池已空，正在自动生成新话题...")
+                topic = "ADHD日常困扰"
+            else:
+                topic = pool.get_next()
+            params["input"] = topic
+            await feishu.send_text(chat_id, f"📌 本期选题：{topic}\n📦 剩余：{pool.remaining()} 条\n\n⏳ 生成公众号标题中...")
+            first_user_msg = (
+                f"话题/痛点：{topic}。请执行模块1，生成4组标题（主标题+副标题），输出后等待我选择。"
+            )
         else:
             await feishu.send_text(chat_id, f"📰 话题：{topic}\n\n⏳ 生成公众号标题中...")
             first_user_msg = (
@@ -222,15 +249,25 @@ async def process_new_command(open_id: str, chat_id: str, text: str):
     else:
         inject_label = "是" if params.get("inject") else "否"
         track_label = "员工端" if params["track"] == "A" else "企业端/HR"
+        topic = params.get("topic")
+        if not topic:
+            # 自动选题
+            pool = get_pain_pool("laborlaw")
+            if pool.is_empty():
+                await feishu.send_text(chat_id, "📦 劳动法痛点池已空，正在自动生成新话题...")
+                topic = "职场权益保护"
+            else:
+                topic = pool.get_next()
+            params["topic"] = topic
         await feishu.send_text(
             chat_id,
-            f"📝 话题：{params['topic']}\n"
+            f"📌 本期选题：{topic}\n"
             f"赛道：{track_label}  植入：{inject_label}\n\n"
             "⏳ 生成标题中...",
         )
         first_user_msg = (
-            f"话题：{params['topic']}，赛道：{params['track']}，植入：{inject_label}。"
-            "请执行模块1，生成4个标题，输出后等待我选择。"
+            f"话题：{topic}，赛道：{params['track']}，植入：{inject_label}。"
+            "请执行模块1，生成5个标题（每个≤20字），输出表格：标题候选 | 命中要素 | 安全校验。输出后等待我选择。"
         )
 
     system_prompt = get_system_prompt(skill)
@@ -247,17 +284,18 @@ async def process_new_command(open_id: str, chat_id: str, text: str):
     }
 
     reply = await _call_claude(system_prompt, msgs)
+    reply_clean = clean_output(reply)
     sessions[open_id]["messages"].append({"role": "assistant", "content": reply})
 
     # 判断 skill 是否需要等标题选择（adhd_xhs 已有标题模式不需要）
     skip_title_wait = skill == "adhd_xhs" and params.get("mode") == "title"
     if skip_title_wait:
         sessions[open_id]["state"] = "done"
-        await _finalize(open_id, chat_id, reply, skill, params)
+        await _finalize(open_id, chat_id, reply_clean, skill, params)
     else:
         sessions[open_id]["state"] = "waiting_title"
         sessions[open_id]["last_active"] = time.time()
-        await feishu.send_text(chat_id, reply)
+        await feishu.send_text(chat_id, reply_clean)
 
 
 # ── 标题选择处理 ──────────────────────────────
@@ -281,9 +319,10 @@ async def process_title_choice(open_id: str, chat_id: str, choice: str, session:
 
     try:
         reply = await _call_claude(session["system"], session["messages"])
+        reply_clean = clean_output(reply)
         session["messages"].append({"role": "assistant", "content": reply})
         session["state"] = "done"
-        await _finalize(open_id, chat_id, reply, session["skill"], session["params"])
+        await _finalize(open_id, chat_id, reply_clean, session["skill"], session["params"])
     except Exception as e:
         await feishu.send_text(chat_id, f"⚠️ 生成失败：{e}")
 
@@ -376,8 +415,45 @@ async def health():
 
 @app.post("/admin/refill-pool")
 async def refill_pool(request: Request):
-    """手动补充痛点池，body: {"topics": ["topic1", ...]}"""
+    """手动补充痛点池，body: {"skill": "lawexam", "topics": ["topic1", ...]}"""
     body = await request.json()
+    skill = body.get("skill", "lawexam")
     topics = body.get("topics", [])
-    PAIN_POOL.refill(topics)
-    return {"added": len(topics), "total": PAIN_POOL.remaining()}
+    pool = get_pain_pool(skill)
+    pool.refill(topics)
+    return {"added": len(topics), "total": pool.remaining()}
+
+
+# ── 输出清洗 ──────────────────────────────────
+
+def clean_output(text: str) -> str:
+    """强制清除 AI 输出中的 ** ## 模块标签 等违规格式。
+    即使 AI 不遵守纯文本排版协议，post-processing 也能保证输出干净。"""
+    # 1. 清除 **加粗** → 替换为「文字」
+    text = re.sub(r'\*\*(.+?)\*\*', r'「\1」', text)
+    # 2. 清除 ## 标题标记
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    # 3. 清除模块标签（01. 破冰留人 / 02. 核心内容 等）
+    module_labels = [
+        r'\d{2}\.\s*破冰留人',
+        r'\d{2}\.\s*核心内容',
+        r'\d{2}\.\s*长期养成式互动',
+        r'\d{2}\.\s*标签矩阵',
+        r'\d{2}\.\s*异常捕捉',
+        r'\d{2}\.\s*系统日志',
+        r'\d{2}\.\s*核心归因',
+        r'\d{2}\.\s*补丁程序',
+        r'\d{2}\.\s*执行触点',
+        r'\d{2}\.\s*引导互动',
+        r'\d{2}\.\s*话题注入',
+    ]
+    for label in module_labels:
+        text = re.sub(rf'^{label}\s*\n?', '', text, flags=re.MULTILINE)
+    # 4. 替换中文引号 "…" → 「…」
+    text = text.replace('“', '「').replace('”', '」')
+    text = text.replace('„', '「').replace('‟', '」')
+    # 5. 清除 > 引用块标记
+    text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)
+    # 6. 清除 - 列表标记（短横线+空格开头），但保留 emoji 开头的行
+    text = re.sub(r'^-\s+(?![🔹🔸▫️⚡⚠️✅💡🫧📌])', '🔹 ', text, flags=re.MULTILINE)
+    return text

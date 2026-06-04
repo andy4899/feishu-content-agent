@@ -1,65 +1,141 @@
 """
-Skill system prompts + command parser + 法考痛点池
+Skill system prompts + command parser + 三类痛点池（文件持久化）
 
 ⚠️ 本文件必须与 SKILL_*.md 文件保持同步。SKILL 规则更新后，此处对应修改。
 """
 
+import json
+import os
 import re
 from typing import Optional
 
 # ─────────────────────────────────────────────
-# 痛点池（法考专用，默认30条，池空时 Claude 自动补充）
+# 痛点池（文件持久化，重启不丢失）
 # ─────────────────────────────────────────────
 
 class PainPool:
-    def __init__(self):
-        self.pool: list[str] = [
-            "侵权责任中无过错责任与过错推定怎么区分",
-            "共同犯罪主犯从犯认定逻辑搞不清",
-            "无效合同与可撤销合同的区别",
-            "合同成立与合同生效的区别",
-            "表见代理的构成要件记不住",
-            "诉讼时效中断与中止的区别",
-            "物权变动的区分原则总是混",
-            "刑法中的共犯脱离怎么认定",
-            "行政行为撤销与废止的区别",
-            "民事诉讼举证责任分配规则",
-            "遗嘱继承与法定继承优先顺序",
-            "破产程序中取回权与别除权区别",
-            "间接故意与过于自信过失的区别",
-            "正当防卫的限度条件判断",
-            "紧急避险与正当防卫的区别",
-            "想象竞合与法条竞合的区分",
-            "民法典格式条款的效力规则",
-            "担保物权中质权与留置权区别",
-            "行政处罚种类和适用原则",
-            "诉讼时效与除斥期间的区别",
-            "无权代理与表见代理的区别",
-            "刑事诉讼中的证明标准",
-            "公司法股东代表诉讼的条件",
-            "知识产权侵权责任的认定",
-            "环境侵权无过错责任的适用",
-            "医疗损害责任的归责原则",
-            "网络侵权的平台责任认定",
-            "不当得利与无因管理的区别",
-            "民法典中人格权的保护边界",
-            "继承法中遗嘱形式要件的坑",
-        ]
+    """基于文件的痛点池，用 JSON 记录已使用索引，重启后不重置。"""
+
+    def __init__(self, name: str, items: list[str]):
+        self.name = name
+        self.pool: list[str] = items
+        self._index: int = 0
+        self._load_state()
+
+    def _state_file(self) -> str:
+        return f"/tmp/painpool_{self.name}.json"
+
+    def _load_state(self):
+        try:
+            with open(self._state_file(), "r") as f:
+                data = json.load(f)
+                self._index = data.get("index", 0)
+        except Exception:
+            self._index = 0
+
+    def _save_state(self):
+        try:
+            with open(self._state_file(), "w") as f:
+                json.dump({"index": self._index}, f)
+        except Exception:
+            pass
 
     def get_next(self) -> str:
-        return self.pool.pop(0) if self.pool else ""
+        if self._index >= len(self.pool):
+            return ""
+        item = self.pool[self._index]
+        self._index += 1
+        self._save_state()
+        return item
 
     def is_empty(self) -> bool:
-        return len(self.pool) == 0
+        return self._index >= len(self.pool)
+
+    def remaining(self) -> int:
+        return len(self.pool) - self._index
 
     def refill(self, topics: list[str]):
         self.pool.extend(topics)
-
-    def remaining(self) -> int:
-        return len(self.pool)
+        self._save_state()
 
 
-PAIN_POOL = PainPool()
+# 三类痛点池数据（从 content-pipeline/痛点库/ 同步）
+
+LAWEXAM_PAIN_POOL = PainPool("lawexam", [
+    "刷题做对了但不知道为什么对：一遇到变形题就错",
+    "主观题不会写：背了知识点但答题格式一塌糊涂",
+    "备考焦虑：看到别人进度比自己快就崩溃",
+    "法考和工作两头抓：下班回来根本没力气学习",
+    "客观题选择困难：两个选项都对就是不知道选哪个",
+    "报名资格困惑：我的学历到底能不能报法考",
+    "刑法太抽象：故意过失既遂未遂永远分不清",
+    "行政法太繁琐：各种期限各种程序背了就忘",
+    "历年真题和模拟题差距太大：感觉练了也没用",
+    "主观题改卷标准是什么：写多少字算够写什么内容能得分",
+    "法考和法硕怎么选：两条路的区别和优劣",
+    "一战失败二战心态崩了：要不要继续考下去",
+    "侵权责任中无过错责任与过错推定怎么区分",
+    "共同犯罪主犯从犯认定逻辑搞不清",
+    "无效合同与可撤销合同的区别",
+    "合同成立与合同生效的区别",
+    "表见代理的构成要件记不住",
+    "诉讼时效中断与中止的区别",
+    "物权变动的区分原则总是混",
+    "刑法中的共犯脱离怎么认定",
+    "行政行为撤销与废止的区别",
+    "民事诉讼举证责任分配规则",
+    "遗嘱继承与法定继承优先顺序",
+    "破产程序中取回权与别除权区别",
+    "间接故意与过于自信过失的区别",
+    "正当防卫的限度条件判断",
+    "紧急避险与正当防卫的区别",
+    "想象竞合与法条竞合的区分",
+    "民法典格式条款的效力规则",
+    "担保物权中质权与留置权区别",
+])
+
+ADHD_PAIN_POOL = PainPool("adhd", [
+    "情绪崩溃后的自我攻击：为什么别人能做到我不行",
+    "确诊前的漫长自我怀疑：是懒还是真的有问题",
+    "药物治疗困惑：吃药会不会依赖或变傻",
+    "亲子关系撕裂：孩子被说懒被说不努力家长不知道是ADHD",
+    "伴侣关系损耗：ADHD如何影响感情和日常沟通",
+    "睡眠障碍：脑子停不下来怎么都睡不着",
+    "工作表现焦虑：被同事觉得能力差但其实是症状在作怪",
+    "过度专注陷阱：一件事做了5小时忘记吃饭忘记其他所有事",
+    "金钱管理失控：冲动消费后懊悔但下次还是会发生",
+    "社交疲惫：假装正常太累了但不装又怕被嫌弃",
+    "拖延症和ADHD的区别：到底是习惯问题还是脑神经问题",
+    "确诊成年ADHD的路：去哪里看怎么评估多少钱",
+])
+
+LABOR_PAIN_POOL = PainPool("laborlaw", [
+    "被迫离职：公司各种刁难逼你主动辞职有没有赔偿",
+    "工伤认定：工作中受伤公司不承认怎么办",
+    "加班费怎么算：没有加班费但老板说这是自愿的",
+    "竞业协议：离职后签了竞业限制能不能去同行",
+    "辞退赔偿N+1还是2N：什么情况下能拿到双倍",
+    "社保断缴：公司一直没给交社保有没有办法追回",
+    "产假被辞退：怀孕或哺乳期被开除怎么告",
+    "劳动仲裁流程：第一次仲裁需要准备什么证据",
+    "末位淘汰合不合法：公司以绩效差为由开除违法吗",
+    "年假不让休还不补偿：年假被强制清零怎么办",
+    "试用期工资低于正式工资50%：这是违法的吗",
+    "离职后公司扣押工资：以各种理由不发最后一个月工资",
+])
+
+
+def get_pain_pool(skill: str) -> PainPool:
+    return {
+        "lawexam": LAWEXAM_PAIN_POOL,
+        "adhd_xhs": ADHD_PAIN_POOL,
+        "adhd_gzh": ADHD_PAIN_POOL,
+        "laborlaw": LABOR_PAIN_POOL,
+    }.get(skill, LAWEXAM_PAIN_POOL)
+
+
+# 兼容旧引用
+PAIN_POOL = LAWEXAM_PAIN_POOL
 
 
 # ─────────────────────────────────────────────
