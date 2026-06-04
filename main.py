@@ -303,12 +303,21 @@ async def process_new_command(open_id: str, chat_id: str, text: str):
 async def process_title_choice(open_id: str, chat_id: str, choice: str, session: dict):
     choice = choice.strip()
 
-    if choice in {"1", "2", "3", "4"}:
+    # 重新生成：换一个痛点重新出标题
+    if choice in {"换", "换一个", "重新", "重新生成", "重选", "退出", "下一个"}:
+        sessions.pop(open_id, None)
+        # 把当前痛点放回池子（索引回退1）或直接用新痛点
+        await feishu.send_text(chat_id, "🔄 好的，帮你换一个新话题重新生成标题...\n\n⏳ 请稍候...")
+        # 直接当作新指令处理，会自动选题
+        await process_new_command(open_id, chat_id, _reconstruct_command(session))
+        return
+
+    if choice in {"1", "2", "3", "4", "5"}:
         user_msg = f"我选择标题{choice}。请继续执行模块2、模块3、模块4，完整输出所有内容。"
     elif any(k in choice for k in ["推荐", "你推荐", "推荐的"]):
         user_msg = "用你推荐的标题，继续执行模块2、模块3、模块4，完整输出所有内容。"
     else:
-        await feishu.send_text(chat_id, "请回复 1、2、3、4 或「用你推荐的」")
+        await feishu.send_text(chat_id, "请回复 1-5 选择标题，或回复「换」重新生成新话题")
         return
 
     session["state"] = "generating"
@@ -391,6 +400,25 @@ async def _auto_generate_topic(track: str) -> str:
         }],
     )
     return resp.content[0].text.strip()
+
+
+def _reconstruct_command(session: dict) -> str:
+    """根据 session 信息还原用户指令，用于「换一个」时重新触发。"""
+    skill = session.get("skill", "")
+    params = session.get("params", {})
+    if skill == "lawexam":
+        track = params.get("track", "A")
+        strategy = params.get("strategy", "1")
+        return f"法考 {track} {strategy}"
+    elif skill == "adhd_xhs":
+        return "小红书"
+    elif skill == "adhd_gzh":
+        return "公众号"
+    elif skill == "laborlaw":
+        track = params.get("track", "A")
+        inject = "是" if params.get("inject", True) else "否"
+        return f"劳动法 {track} {inject}"
+    return "帮助"
 
 
 def _expire_old_sessions():
