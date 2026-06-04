@@ -484,4 +484,10 @@ def clean_output(text: str) -> str:
     text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)
     # 6. 清除 - 列表标记（短横线+空格开头），但保留 emoji 开头的行
     text = re.sub(r'^-\s+(?![🔹🔸▫️⚡⚠️✅💡🫧📌])', '🔹 ', text, flags=re.MULTILINE)
+    # 7. 清除 Markdown 表格行（| --- | --- | 格式）
+    text = re.sub(r'^\|[\s:|-]+\|$', '', text, flags=re.MULTILINE)
+    # 8. 清除表格分隔线
+    text = re.sub(r'^\|[-:\s]+\|$', '', text, flags=re.MULTILINE)
+    # 9. 清除多余空行（连续3个以上空行压缩为2个）
+    text = re.sub(r'\n{3,}', '\n\n', text)
     return text
