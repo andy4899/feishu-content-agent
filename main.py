@@ -143,6 +143,16 @@ HELP_TEXT = """👋 你好！我是内容生成助手，支持以下 4 类内容
 赛道：同小红书 A/B/C/D
 
 ━━━━━━━━━━━━━━━━━━
+🖼️ 【ADHD 公众号贴图】
+以 5 张手绘贴图为主角、文字极简的图卡式内容
+直接输入「公众号贴图」即可，话题自动从痛点库抽取
+也可指定赛道：公众号贴图 B  /  公众号贴图 职场
+也可手动指定：公众号贴图 【痛点话题】
+或直接给封面标题：公众号贴图 《你的标题》
+
+赛道：同小红书 A/B/C/D
+
+━━━━━━━━━━━━━━━━━━
 ⚖️ 【劳动法小红书】
 格式：劳动法 [赛道] [植入]
 示例：劳动法  /  劳动法 A 是  /  劳动法 B 否
@@ -258,6 +268,36 @@ async def process_new_command(open_id: str, chat_id: str, text: str):
             await feishu.send_text(chat_id, f"📰 话题：{topic}\n赛道：{track_label}\n\n⏳ 生成公众号标题中...")
             first_user_msg = (
                 f"话题/痛点：{topic}，Track {adhd_track}（{track_label}视角）。请执行模块1，生成4组标题（主标题+副标题），输出后等待我选择。"
+            )
+
+    # ── ADHD 公众号贴图（图卡式）──
+    elif skill == "adhd_gzh_img":
+        mode = params.get("mode", "topic")
+        topic = params.get("input", "")
+        adhd_track = params.get("track", "A")
+        track_labels = {"A": "成人", "B": "儿童/亲子", "C": "夫妻/伴侣", "D": "职场"}
+        track_label = track_labels.get(adhd_track, "成人")
+        if mode == "title":
+            await feishu.send_text(chat_id, f"🖼️ 已有封面标题：「{topic}」\n赛道：{track_label}\n\n⏳ 直接生成贴图文字和配图提示词中...")
+            first_user_msg = (
+                f"已有封面标题：「{topic}」，Track {adhd_track}（{track_label}视角）。跳过模块1，直接执行模块2、模块3、模块4，完整输出。"
+            )
+        elif mode == "auto" or not topic:
+            pool = get_pain_pool(skill)
+            if pool.is_empty():
+                await feishu.send_text(chat_id, "📦 ADHD痛点池已空，正在自动生成新话题...")
+                topic = "ADHD日常困扰"
+            else:
+                topic = pool.get_next()
+            params["input"] = topic
+            await feishu.send_text(chat_id, f"📌 本期选题：{topic}\n赛道：{track_label}  📦 剩余：{pool.remaining()} 条\n\n⏳ 生成贴图封面标题中...")
+            first_user_msg = (
+                f"话题/痛点：{topic}，Track {adhd_track}（{track_label}视角）。请执行模块1，生成4组封面标题（大标题+副标题），输出后等待我选择。"
+            )
+        else:
+            await feishu.send_text(chat_id, f"🖼️ 话题：{topic}\n赛道：{track_label}\n\n⏳ 生成贴图封面标题中...")
+            first_user_msg = (
+                f"话题/痛点：{topic}，Track {adhd_track}（{track_label}视角）。请执行模块1，生成4组封面标题（大标题+副标题），输出后等待我选择。"
             )
 
     # ── 劳动法 ──
@@ -381,9 +421,10 @@ def _build_doc_title(skill: str, params: dict) -> str:
     if skill == "lawexam":
         topic = params.get("topic", "")[:8]
         return f"法考_小红书_{today}_{topic}_赛道{params['track']}_策略{params['strategy']}"
-    elif skill == "adhd_xhs":
-        topic = params.get("input", "")[:10]
-        return f"ADHD_小红书_{today}_{topic}"
+    elif skill in ("adhd_xhs", "adhd_gzh", "adhd_gzh_img"):
+        topic = (params.get("input") or params.get("topic", ""))[:10]
+        suffix = {"adhd_xhs": "小红书", "adhd_gzh": "公众号", "adhd_gzh_img": "公众号贴图"}[skill]
+        return f"ADHD_{suffix}_{today}_{topic}"
     else:
         topic = params.get("topic", "")[:10]
         track = "员工" if params["track"] == "A" else "企业"
@@ -431,6 +472,9 @@ def _reconstruct_command(session: dict) -> str:
     elif skill == "adhd_gzh":
         adhd_track = params.get("track", "A")
         return f"公众号 {adhd_track}"
+    elif skill == "adhd_gzh_img":
+        adhd_track = params.get("track", "A")
+        return f"公众号贴图 {adhd_track}"
     elif skill == "laborlaw":
         track = params.get("track", "A")
         inject = "是" if params.get("inject", True) else "否"
