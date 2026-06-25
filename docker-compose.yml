@@ -1,0 +1,31 @@
+services:
+  app:
+    build: .
+    container_name: feishu-agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # 痛点池持久化目录（挂到下方 ./data 卷，重启/重新部署不丢选题）
+      - PAINPOOL_DIR=/app/data
+    volumes:
+      - ./data:/app/data
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:

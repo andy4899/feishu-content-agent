@@ -23,7 +23,8 @@ class PainPool:
         self._load_state()
 
     def _state_file(self) -> str:
-        return f"/tmp/painpool_{self.name}.json"
+        d = os.environ.get("PAINPOOL_DIR", "/tmp")
+        return f"{d}/painpool_{self.name}.json"
 
     def _load_state(self):
         try:

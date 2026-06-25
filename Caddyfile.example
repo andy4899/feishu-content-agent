@@ -1,0 +1,11 @@
+# 把 your-domain.com 换成你解析到服务器的域名。
+# Caddy 会自动向 Let's Encrypt 申请并续期 HTTPS 证书（前提：80/443 端口已开放、域名解析正确）。
+
+your-domain.com {
+	reverse_proxy app:8000
+
+	# 飞书 webhook 要求 3 秒内响应；放宽请求体与超时
+	request_body {
+		max_size 10MB
+	}
+}
