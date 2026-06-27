@@ -1,0 +1,35 @@
+# Cloudflare Tunnel 部署（免域名备案、免开 80/443 端口）
+#
+# 这是 Quick Tunnel：cloudflared 自动分配一个 https://<随机>.trycloudflare.com 地址。
+# ⚠️ 每次 `up`/重启容器地址都会变，仅用于「先测通飞书链路」，不适合长期 webhook。
+# 长期稳定用 Named Tunnel（需要一个托管到 Cloudflare 的域名，走隧道出口仍免备案）。
+#
+# 用法：
+#   docker compose -f docker-compose.tunnel.yml up -d --build
+#   docker compose -f docker-compose.tunnel.yml logs tunnel | grep -i trycloudflare   # 拿到 https://xxx.trycloudflare.com
+# 飞书回调填： https://<上面那个地址>/webhook
+#
+# 切回 Caddy 版本（标准域名/443）：docker compose down 后用 docker-compose.yml。
+
+services:
+  app:
+    build: .
+    container_name: feishu-agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # 痛点池持久化目录（挂到下方 ./data 卷，重启/重新部署不丢选题）
+      - PAINPOOL_DIR=/app/data
+    volumes:
+      - ./data:/app/data
+    expose:
+      - "8000"
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    # Quick Tunnel：出站连 Cloudflare，把公网入口反代到 app:8000
+    command: tunnel --no-autoupdate --url http://app:8000
+    depends_on:
+      - app
